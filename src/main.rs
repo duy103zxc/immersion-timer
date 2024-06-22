@@ -1,5 +1,5 @@
-use std::fs::OpenOptions;
-use std::io::{Write, stdout};
+use std::fs::{self, OpenOptions};
+use std::io::{stdout, Write};
 use std::{thread, time};
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use clap::{crate_authors, crate_version, Parser};
@@ -8,12 +8,17 @@ use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
 #[derive(Parser)]
 #[command(name = "tt", author = crate_authors!("\n"), version = crate_version!())]
 /// Tea timer!  Count up in seconds.
-struct Cli {}
+struct Cli {
+    #[arg(default_value="")]
+    option: String
+}
 
 fn main() {
     let _cli = Cli::parse();
-    // 
+    // log files for saving immersion logs
     let mut status_file = OpenOptions::new().append(true).create(true).write(true).open("timeline.txt").expect("Can't open the timeline.txt file");
+    let mut total = OpenOptions::new().create(true).write(true).open("total.txt").expect("Can't open the timeline.txt file");
+    
     // Async object to control run of programme
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
@@ -42,7 +47,23 @@ fn main() {
     // Hide cursor at start of programme
     let mut stdout = stdout.lock().unwrap();
     stdout.execute(cursor::Hide).unwrap();
-
+    
+    match _cli.option.as_str() {
+        "timeline" => {
+            println!("{}", fs::read_to_string("timeline.txt").expect("Can't open the timeline.txt file, please restart the program"));
+            std::process::exit(1);
+        },
+        "total" => {
+            
+            let total_log: usize = fs::read_to_string("total.txt").expect("Can't open the timeline.txt file, please restart the program").trim().parse().unwrap();
+            let (h, m, s) = format_log(total_log / 10);
+            println!("You've immersed in the language for {:0>2}:{:0>2}:{:0>2}!", h, m, s);
+            std::process::exit(1);
+        }, 
+        _ => {
+            println!("Starting.....");
+        }
+    }
     // Main counting/printing logic!
     // Note that we count up in 100 milliseconds for better Ctrl+C precision/
     // response time.  If we counted up in seconds, and the user pressed Ctrl+C
@@ -68,8 +89,9 @@ fn main() {
         total_time += 1;
         partial_seconds_counter += 1;
     }
-    let (x, y, z) = tuple_converter(total_time / 10);
-    writeln!(status_file, "Immersion: {}:{}:{}", x, y, z).expect("Can't write to the file");
+    let (h, m, s) = format_log(total_time / 10);
+    writeln!(status_file, "Immersion: {:0>2}:{:0>2}:{:0>2}", h, m, s).expect("Can't write to the file");
+    total.write_all(update_total(total_time).as_bytes()).expect("Can't write the total amount");
     // Ensure cursor is shown before exitting
     stdout.execute(cursor::Show).unwrap();
 }
@@ -87,9 +109,25 @@ fn format_seconds(seconds: usize) -> String {
     )
 }
 
-fn tuple_converter(seconds: usize) -> (usize, usize, usize) {
+fn format_log(seconds: usize) -> (usize, usize, usize) {
     let seconds_rem = seconds % 60;
     let minutes_rem = (seconds / 60) % 60;
     let hours_rem = (seconds / 60) / 60;
     (hours_rem, minutes_rem, seconds_rem)
+}
+
+// file -> file
+// update the data inside the file.
+fn update_total(amt: usize) -> String {
+    let content = fs::read_to_string("total.txt").expect("Can't read the data from total.txt");
+    let mut id = 0; 
+    match content.as_str() {
+        "" => {
+            print!("");
+        },
+        _ => {
+            id = content.trim().parse().expect("Can't parse the value");
+        }
+    }
+    format!("{}", id + amt)
 }
